@@ -119,6 +119,150 @@ public static class ArenaDecorGenerator
         Debug.Log("Ambiance sonore ajoutée (foule + tam-tams générés par code). Lance le jeu (Play) pour l'entendre.");
     }
 
+    // --- Pas du décor à proprement parler, mais pratique d'avoir tout au même endroit ---
+    [MenuItem("Tools/Dakar Arena/Ajuster les colliders des joueurs")]
+    public static void AjusterCollidersJoueurs()
+    {
+        AjusterColliderJoueur("Player1");
+        AjusterColliderJoueur("Player2");
+    }
+
+    private static void AjusterColliderJoueur(string nomObjet)
+    {
+        GameObject joueur = GameObject.Find(nomObjet);
+        if (joueur == null)
+        {
+            Debug.LogWarning($"'{nomObjet}' introuvable dans la scène.");
+            return;
+        }
+
+        // Calcule la taille à partir du maillage AU REPOS (pas de la pose animée courante) :
+        // ça évite qu'un bras tendu en pleine animation au moment exact où l'outil tourne
+        // fausse complètement la mesure (c'est exactement ce qui s'est passé : profondeur
+        // détectée à 1,79 pour un personnage large de seulement 0,47, signe d'un bras/coup
+        // étiré au mauvais moment).
+        Bounds? boundsNullable = CalculerBoundsAuRepos(joueur);
+        if (boundsNullable == null)
+        {
+            Debug.LogWarning($"Aucun mesh exploitable trouvé sous '{nomObjet}' pour calculer sa taille.");
+            return;
+        }
+        Bounds boundsMonde = boundsNullable.Value;
+
+        // Conversion en taille/centre locaux, car les colliders se règlent par rapport au transform du joueur
+        Vector3 echelle = joueur.transform.lossyScale;
+        Vector3 tailleLocale = new Vector3(
+            boundsMonde.size.x / Mathf.Max(echelle.x, 0.0001f),
+            boundsMonde.size.y / Mathf.Max(echelle.y, 0.0001f),
+            boundsMonde.size.z / Mathf.Max(echelle.z, 0.0001f));
+        Vector3 centreLocal = joueur.transform.InverseTransformPoint(boundsMonde.center);
+
+        Debug.Log($"{nomObjet} : taille du modèle (au repos) détectée ≈ {tailleLocale}.");
+
+        // Cherche le Collider sur l'objet OU sur ses enfants (au cas où il ne serait pas sur la racine)
+        float offsetBasLocal; // distance verticale (en unités monde) entre le pivot du joueur et le bas de son Collider
+        bool colliderTrouve = false;
+
+        CapsuleCollider capsule = joueur.GetComponentInChildren<CapsuleCollider>();
+        if (capsule != null)
+        {
+            Undo.RecordObject(capsule, "Ajuster CapsuleCollider du joueur");
+            capsule.height = tailleLocale.y;
+            capsule.radius = Mathf.Max(tailleLocale.x, tailleLocale.z) * 0.5f;
+            capsule.center = centreLocal;
+            Debug.Log($"{nomObjet} : CapsuleCollider ajusté sur '{capsule.gameObject.name}' (rayon ≈ {capsule.radius:F2}, hauteur ≈ {capsule.height:F2}).");
+            offsetBasLocal = (capsule.center.y - capsule.height * 0.5f) * echelle.y;
+            colliderTrouve = true;
+        }
+        else
+        {
+            BoxCollider box = joueur.GetComponentInChildren<BoxCollider>();
+            if (box != null)
+            {
+                Undo.RecordObject(box, "Ajuster BoxCollider du joueur");
+                box.size = tailleLocale;
+                box.center = centreLocal;
+                Debug.Log($"{nomObjet} : BoxCollider ajusté sur '{box.gameObject.name}' (taille ≈ {tailleLocale}).");
+                offsetBasLocal = (box.center.y - box.size.y * 0.5f) * echelle.y;
+                colliderTrouve = true;
+            }
+            else
+            {
+                Debug.LogWarning($"'{nomObjet}' n'a ni CapsuleCollider ni BoxCollider (même en cherchant dans ses enfants). " +
+                                  "Vérifie quel type de Collider il a réellement dans l'Inspector.");
+                return;
+            }
+        }
+
+        // Replace le joueur pour que le bas de son Collider (recalculé) repose exactement
+        // sur la surface du Ground, au lieu de flotter ou de s'enfoncer dans le sol.
+        if (colliderTrouve)
+        {
+            GameObject ground = GameObject.Find("Ground");
+            if (ground != null && ground.GetComponent<Renderer>() != null)
+            {
+                float surfaceSol = ground.GetComponent<Renderer>().bounds.max.y;
+                Vector3 pos = joueur.transform.position;
+                float nouveauY = surfaceSol - offsetBasLocal;
+
+                Undo.RecordObject(joueur.transform, "Replacer le joueur sur le sol");
+                pos.y = nouveauY;
+                joueur.transform.position = pos;
+                Debug.Log($"{nomObjet} : repositionné à y={nouveauY:F2} pour reposer exactement sur le Ground (surface à y={surfaceSol:F2}).");
+            }
+            else
+            {
+                Debug.LogWarning("'Ground' introuvable : le Collider a été ajusté, mais je n'ai pas pu vérifier/corriger la position verticale du joueur.");
+            }
+        }
+    }
+
+    // Calcule les limites du personnage à partir des maillages AU REPOS (bind pose), pas de la
+    // pose animée courante — évite qu'une animation en cours (bras tendu, coup en plein mouvement)
+    // ne fausse le résultat selon l'instant exact où l'outil est lancé.
+    private static Bounds? CalculerBoundsAuRepos(GameObject racine)
+    {
+        bool premier = true;
+        Bounds resultat = new Bounds();
+
+        foreach (SkinnedMeshRenderer smr in racine.GetComponentsInChildren<SkinnedMeshRenderer>())
+        {
+            if (smr.sharedMesh == null) continue;
+            Bounds b = TransformerBoundsLocales(smr.localBounds, smr.transform);
+            if (premier) { resultat = b; premier = false; } else resultat.Encapsulate(b);
+        }
+
+        foreach (MeshFilter mf in racine.GetComponentsInChildren<MeshFilter>())
+        {
+            if (mf.sharedMesh == null) continue;
+            if (mf.GetComponent<MeshRenderer>() == null) continue; // ignore les MeshFilter sans rendu actif
+            if (mf.GetComponent<SkinnedMeshRenderer>() != null) continue; // déjà traité au-dessus
+
+            Bounds b = TransformerBoundsLocales(mf.sharedMesh.bounds, mf.transform);
+            if (premier) { resultat = b; premier = false; } else resultat.Encapsulate(b);
+        }
+
+        return premier ? (Bounds?)null : resultat;
+    }
+
+    // Transforme des limites locales (non affectées par la pose/rotation) en limites monde,
+    // en passant par les 8 coins de la boîte pour rester correct même si l'objet est tourné.
+    private static Bounds TransformerBoundsLocales(Bounds local, Transform t)
+    {
+        Vector3 ext = local.extents;
+        Vector3[] coins = new Vector3[8];
+        int idx = 0;
+        for (int sx = -1; sx <= 1; sx += 2)
+            for (int sy = -1; sy <= 1; sy += 2)
+                for (int sz = -1; sz <= 1; sz += 2)
+                    coins[idx++] = t.TransformPoint(local.center + new Vector3(sx * ext.x, sy * ext.y, sz * ext.z));
+
+        Bounds resultat = new Bounds(coins[0], Vector3.zero);
+        for (int i = 1; i < 8; i++)
+            resultat.Encapsulate(coins[i]);
+        return resultat;
+    }
+
     private static float RayonExterieurFoule(float radius)
     {
         return (radius + 1.0f) + (NbRangsFoule - 1) * EspacementRangFoule;

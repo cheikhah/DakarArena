@@ -135,7 +135,11 @@ public class PlayerController : MonoBehaviour
 
     void DealDamage()
     {
-        if (gameManager == null) return;
+        if (gameManager == null)
+        {
+            Debug.LogWarning($"{name} : GameManager introuvable dans la scène, l'attaque n'a aucun effet.");
+            return;
+        }
 
         if (isPlayerOne)
             gameManager.DamagePlayer2(attackDamage);

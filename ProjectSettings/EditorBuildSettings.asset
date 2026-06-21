@@ -8,5 +8,17 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/SampleScene.unity
     guid: 99c9720ab356a0642a771bea13969a05
+  - enabled: 1
+    path: Assets/Scenes/MainMenu.unity
+    guid: c71d54adedbf5544287c6a4e0f0f2fa3
+  - enabled: 1
+    path: Assets/Scenes/CharacterSelect.unity
+    guid: 09442d261ebb2f0458a5b6d482f32e53
+  - enabled: 1
+    path: Assets/Scenes/Arena_Sandaga.unity
+    guid: 565f061ad58c53a47a0db5c5a39254f4
+  - enabled: 1
+    path: Assets/Scenes/Victory.unity
+    guid: 6126de5e3656170459de29151d32f6d8
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}

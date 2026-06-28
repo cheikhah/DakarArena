@@ -24,7 +24,10 @@ public class PlayerController : MonoBehaviour
         if (rb != null)
         {
             // Empêche le personnage de basculer sur le côté lors des collisions
-            rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
+            // Bloque TOUTE rotation physique (X, Y et Z) : dans ce jeu, l'orientation des
+            // personnages ne doit jamais être pilotée par la physique (sinon un choc entre
+            // joueurs peut les faire tourner sur eux-mêmes / partir en vrille).
+            rb.constraints = RigidbodyConstraints.FreezeRotation;
         }
         else
         {
@@ -129,7 +132,7 @@ public class PlayerController : MonoBehaviour
     {
         if (isPlayerOne && Keyboard.current.jKey.wasPressedThisFrame)
             DealDamage();
-        if (!isPlayerOne && Keyboard.current.numpad1Key.wasPressedThisFrame)
+        if (!isPlayerOne && Keyboard.current.enterKey.wasPressedThisFrame)
             DealDamage();
     }
 
